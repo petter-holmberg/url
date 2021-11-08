@@ -130,6 +130,25 @@ header_callback(char* buffer, size_t size, size_t nitems, void*) -> size_t
     return size * nitems;
 }
 
+static auto
+encode_url(std::string_view url) -> std::string
+{
+    std::string url_str{url};
+    {
+        CURLU* url_handle{::curl_url()};
+        long const flags{CURLU_DEFAULT_SCHEME | CURLU_URLENCODE};
+        auto curl_res{::curl_url_set(url_handle, CURLUPART_URL, url_str.c_str(), flags)};
+        if (curl_res == CURLUE_OK) {
+            char* encoded_url;
+            ::curl_url_get(url_handle, CURLUPART_URL, &encoded_url, 0);
+            url_str = encoded_url;
+            ::curl_free(encoded_url);
+        }
+        ::curl_url_cleanup(url_handle);
+    }
+    return url_str;
+}
+
 }
 
 export namespace url {
@@ -157,8 +176,11 @@ auto
 get(std::string_view url, header_t const& headers = {}) -> response
 {
     auto& curl = curl_thread_context.curl;
-    std::string url_str{url};
+
+    auto url_str{encode_url(url)};
     ::curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
+
+    ::curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
     ::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     ::curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 

@@ -1,5 +1,5 @@
 /*
-url - A simple C++20 module for making HTTP requests. Version 0.0.1.
+url - A simple C++20 module for making HTTP requests. Version 0.0.2.
 
 Written in 2021 by Petter Holmberg petter.holmberg@usa.net
 
@@ -16,10 +16,12 @@ module;
 
 #include <curl/curl.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <algorithm>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -53,8 +55,8 @@ curl_global curl_global_context;
 
 struct curl_thread_local
 {
-    CURL* curl{nullptr};
-    curl_slist* header_chunk{nullptr};
+    CURL* curl{};
+    curl_slist* header_chunk{};
     std::vector<std::string> response_headers;
 
     ~curl_thread_local()
@@ -91,7 +93,7 @@ struct user_data
     user_data()
         : memory{reinterpret_cast<char*>(::malloc(1))}
     {
-        if (memory == nullptr) throw std::runtime_error("user_data::user_data: malloc failed");
+        if (!memory) throw std::runtime_error("user_data::user_data: malloc failed");
     }
 
     user_data(user_data const&) = delete;
@@ -99,7 +101,7 @@ struct user_data
     user_data& operator=(user_data const&) = delete;
 };
 
-static auto
+auto
 write_user_data(void* contents, size_t size, size_t nmemb, void* userp) -> size_t
 {
     auto realsize{size * nmemb};
@@ -118,7 +120,7 @@ write_user_data(void* contents, size_t size, size_t nmemb, void* userp) -> size_
     return realsize;
 }
 
-static auto
+auto
 header_callback(char* buffer, size_t size, size_t nitems, void*) -> size_t
 {
     auto& response_headers = curl_thread_context.response_headers;
@@ -130,34 +132,50 @@ header_callback(char* buffer, size_t size, size_t nitems, void*) -> size_t
     return size * nitems;
 }
 
-static auto
+auto
 encode_url(std::string_view url) -> std::string
 {
     std::string url_str{url};
     {
-        CURLU* url_handle{::curl_url()};
+        using url_handle_t = std::unique_ptr<CURLU, decltype(&::curl_url_cleanup)>;
+        url_handle_t url_handle{::curl_url(), ::curl_url_cleanup};
         long const flags{CURLU_DEFAULT_SCHEME | CURLU_URLENCODE};
-        auto curl_res{::curl_url_set(url_handle, CURLUPART_URL, url_str.c_str(), flags)};
+        auto curl_res{::curl_url_set(url_handle.get(), CURLUPART_URL, url_str.c_str(), flags)};
         if (curl_res == CURLUE_OK) {
             char* encoded_url;
-            ::curl_url_get(url_handle, CURLUPART_URL, &encoded_url, 0);
+            ::curl_url_get(url_handle.get(), CURLUPART_URL, &encoded_url, 0);
             url_str = encoded_url;
             ::curl_free(encoded_url);
         }
-        ::curl_url_cleanup(url_handle);
     }
     return url_str;
 }
 
+void
+set_url_options(std::string_view url)
+{
+    auto& curl = curl_thread_context.curl;
+
+    auto url_str{encode_url(url)};
+    ::curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
+    ::curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    ::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    ::curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 }
 
-export namespace url {
+}
+
+namespace url {
 
 inline namespace v0 {
 
 using header_t = std::vector<std::string>;
 
-struct response
+using form_t = std::vector<std::pair<std::string, std::string>>;
+
+using files_t = std::vector<std::pair<std::string, std::vector<std::byte>>>;
+
+export struct response_t
 {
     uint32_t status_code{0};
     header_t headers;
@@ -172,19 +190,13 @@ struct response
     }
 };
 
-auto
-get(std::string_view url, header_t const& headers = {}) -> response
+static void
+set_headers(header_t const& headers)
 {
     auto& curl = curl_thread_context.curl;
 
-    auto url_str{encode_url(url)};
-    ::curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
-
-    ::curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
-    ::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    ::curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-
     ::curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+
     if (!headers.empty()) {
         auto& header_chunk{curl_thread_context.header_chunk};
         for (const auto& header : headers) {
@@ -192,48 +204,94 @@ get(std::string_view url, header_t const& headers = {}) -> response
         }
         ::curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_chunk);
     }
+}
 
-    user_data chunk;
+static auto
+request() -> response_t
+{
+    auto& curl = curl_thread_context.curl;
+
     ::curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_user_data);
+    user_data chunk;
     ::curl_easy_setopt(curl, CURLOPT_WRITEDATA, reinterpret_cast<void*>(&chunk));
 
     curl_thread_context.response_headers.clear();
     ::curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
 
-    response res;
+    response_t response;
     auto curl_res{::curl_easy_perform(curl)};
     if (curl_res == CURLE_OK || curl_res == CURLE_HTTP_RETURNED_ERROR) {
-        ::curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res.status_code);
-        res.body.assign(chunk.memory, chunk.memory + chunk.size);
+        ::curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status_code);
+        response.body.assign(chunk.memory, chunk.memory + chunk.size);
 
-        res.headers = std::move(curl_thread_context.response_headers);
+        response.headers = std::move(curl_thread_context.response_headers);
 
         if (
             auto content_type{
                 std::ranges::find_if(
-                    res.headers,
+                    response.headers,
                     [](const std::string& header) { return header.starts_with("content-type:"); }
                 )
             };
-            content_type != std::end(res.headers)
+            content_type != std::end(response.headers)
         ) {
             auto first{content_type->rfind("charset=")};
             if (first != std::string::npos) {
                 auto last{content_type->find(';', first)};
-                res.encoding = content_type->substr(first + 8, last);
+                response.encoding = content_type->substr(first + 8, last);
             }
         }
 
         {
-            char* effective_url{nullptr};
+            char* effective_url{};
             ::curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);
             if (effective_url) {
-                res.url = effective_url;
+                response.url = effective_url;
             }
         }
     }
 
-    return res;
+    return response;
+}
+
+export auto
+get(std::string_view url, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+    set_headers(headers);
+    return request();
+}
+
+export auto
+post(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+    set_headers(headers);
+
+    auto& curl = curl_thread_context.curl;
+    std::string body_str{body};
+    ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+
+    return request();
+}
+
+export auto
+post(std::string_view url, form_t form, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+    set_headers(headers);
+
+    auto& curl = curl_thread_context.curl;
+    using mime_t = std::unique_ptr<curl_mime, decltype(&::curl_mime_free)>;
+    mime_t mime{::curl_mime_init(curl), ::curl_mime_free};
+    for (const auto& field : form) {
+        auto part{::curl_mime_addpart(mime.get())};
+        ::curl_mime_name(part, field.first.c_str());
+        ::curl_mime_data(part, field.second.c_str(), CURL_ZERO_TERMINATED);
+    }
+    ::curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime.get());
+
+    return request();
 }
 
 }

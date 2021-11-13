@@ -294,6 +294,22 @@ post(std::string_view url, form_t form, header_t const& headers = {}) -> respons
     return request();
 }
 
+export auto
+put(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+
+    auto& curl = curl_thread_context.curl;
+    ::curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+
+    set_headers(headers);
+
+    std::string body_str{body};
+    ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+
+    return request();
+}
+
 }
 
 }

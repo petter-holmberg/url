@@ -21,6 +21,7 @@ module;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -187,6 +188,13 @@ export struct response_t
         return status_code >= 100 && status_code < 400;
     }
 };
+
+export auto
+operator<<(std::ostream& os, response_t const& response) -> std::ostream&
+{
+    os << response.body;
+    return os;
+}
 
 static void
 set_headers(header_t const& headers)

@@ -197,7 +197,7 @@ set_headers(header_t const& headers)
 
     if (!headers.empty()) {
         auto& header_chunk{curl_thread_context.header_chunk};
-        for (const auto& header : headers) {
+        for (auto const& header : headers) {
             header_chunk = ::curl_slist_append(header_chunk, header.c_str());
         }
         ::curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_chunk);
@@ -228,7 +228,7 @@ request() -> response_t
             auto content_type{
                 std::ranges::find_if(
                     response.headers,
-                    [](const std::string& header) { return header.starts_with("content-type:"); }
+                    [](std::string const& header) { return header.starts_with("content-type:"); }
                 )
             };
             content_type != std::end(response.headers)
@@ -252,12 +252,42 @@ request() -> response_t
     return response;
 }
 
+static auto
+update(std::string_view url, char const* method, std::string_view body, header_t const& headers) -> response_t
+{
+    set_url_options(url);
+
+    auto& curl = curl_thread_context.curl;
+    ::curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+
+    set_headers(headers);
+
+    if (!body.empty()) {
+        std::string body_str{body};
+        ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+    }
+
+    return request();
+}
+
+export auto
+del(std::string_view url, std::string_view body = {}, header_t const& headers = {}) -> response_t
+{
+    return update(url, "DELETE", body, headers);
+}
+
 export auto
 get(std::string_view url, header_t const& headers = {}) -> response_t
 {
     set_url_options(url);
     set_headers(headers);
     return request();
+}
+
+export auto
+patch(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+{
+    return update(url, "PATCH", body, headers);
 }
 
 export auto
@@ -295,35 +325,7 @@ post(std::string_view url, form_t form, header_t const& headers = {}) -> respons
 export auto
 put(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
 {
-    set_url_options(url);
-
-    auto& curl = curl_thread_context.curl;
-    ::curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
-
-    set_headers(headers);
-
-    std::string body_str{body};
-    ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
-
-    return request();
-}
-
-export auto
-del(std::string_view url, std::string_view body = {}, header_t const& headers = {}) -> response_t
-{
-    set_url_options(url);
-
-    auto& curl = curl_thread_context.curl;
-    ::curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-
-    set_headers(headers);
-
-    if (!body.empty()) {
-        std::string body_str{body};
-        ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
-    }
-
-    return request();
+    return update(url, "PUT", body, headers);
 }
 
 }

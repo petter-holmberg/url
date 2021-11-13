@@ -1,5 +1,5 @@
 /*
-url - A simple C++20 module for making HTTP requests. Version 0.0.2.
+url - A simple C++20 module for making HTTP requests. Version 0.0.3.
 
 Written in 2021 by Petter Holmberg petter.holmberg@usa.net
 

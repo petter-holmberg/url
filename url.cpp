@@ -173,8 +173,6 @@ using header_t = std::vector<std::string>;
 
 using form_t = std::vector<std::pair<std::string, std::string>>;
 
-using files_t = std::vector<std::pair<std::string, std::vector<std::byte>>>;
-
 export struct response_t
 {
     uint32_t status_code{0};
@@ -306,6 +304,24 @@ put(std::string_view url, std::string_view body, header_t const& headers = {}) -
 
     std::string body_str{body};
     ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+
+    return request();
+}
+
+export auto
+del(std::string_view url, std::string_view body = {}, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+
+    auto& curl = curl_thread_context.curl;
+    ::curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+
+    set_headers(headers);
+
+    if (!body.empty()) {
+        std::string body_str{body};
+        ::curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+    }
 
     return request();
 }

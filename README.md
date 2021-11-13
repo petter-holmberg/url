@@ -90,5 +90,5 @@ A simple C++20 module for making HTTP requests.
 ### DELETE
 
     // Delete a REST API resource
-    auto response = url::del("https://example.com/users/dopey"):
+    auto response = url::del("https://example.com/users/dopey");
     assert(response.status_code == 204);

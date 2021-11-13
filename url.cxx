@@ -17,6 +17,7 @@ module;
 #include <curl/curl.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -170,9 +171,9 @@ namespace url {
 
 inline namespace v0 {
 
-using header_t = std::vector<std::string>;
+export using header_t = std::vector<std::string>;
 
-using form_t = std::vector<std::pair<std::string, std::string>>;
+export using form_t = std::vector<std::pair<std::string, std::string>>;
 
 export struct response_t
 {
@@ -236,7 +237,11 @@ request() -> response_t
             auto content_type{
                 std::ranges::find_if(
                     response.headers,
-                    [](std::string const& header) { return header.starts_with("content-type:"); }
+                    [](std::string const& header) {
+                        std::string lower{header};
+                        std::ranges::transform(lower, lower.begin(), ::tolower);
+                        return lower.starts_with("content-type:");
+                    }
                 )
             };
             content_type != std::end(response.headers)

@@ -285,6 +285,18 @@ get(std::string_view url, header_t const& headers = {}) -> response_t
 }
 
 export auto
+head(std::string_view url, header_t const& headers = {}) -> response_t
+{
+    set_url_options(url);
+
+    auto& curl = curl_thread_context.curl;
+    ::curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+
+    set_headers(headers);
+    return request();
+}
+
+export auto
 patch(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
 {
     return update(url, "PATCH", body, headers);

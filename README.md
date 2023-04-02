@@ -1,9 +1,9 @@
 # url
-A simple C++20 module for making HTTP requests.
+A simple C++20 library for making HTTP requests.
 
 ## Usage examples
 
-    import url;
+    #include "url.hpp"
 
 ### HEAD
 
@@ -28,6 +28,10 @@ A simple C++20 module for making HTTP requests.
     std::cout << response.body << '\n';
     std::cout << response.encoding << '\n';
     std::cout << response.url << '\n';
+
+    // Monadic operations
+    url::get("https://example.com").and_then([](auto const& res){ std::cout << res; });
+    std::cout << url::get("https://example.com/404").or_else([]{ return url::get("https://example.com"); });
 
 ### POST
 

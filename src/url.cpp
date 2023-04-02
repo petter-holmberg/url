@@ -1,7 +1,7 @@
 /*
-url - A simple C++20 module for making HTTP requests. Version 0.0.3.
+url - A simple C++20 library for making HTTP requests. Version 0.0.3.
 
-Written in 2021 by Petter Holmberg petter.holmberg@usa.net
+Written in 2023 by Petter Holmberg petter.holmberg@usa.net
 
 Uses libcurl: https://curl.se/libcurl/
 
@@ -11,8 +11,7 @@ You should have received a copy of the CC0 Public Domain Dedication along with t
 
 It is also recommended that you include a file called COPYING (or COPYING.txt) containing the CC0 legalcode as plain text.
 */
-
-module;
+#include "url.hpp"
 
 #include <curl/curl.h>
 
@@ -22,15 +21,13 @@ module;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <memory>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-export module url;
 
 namespace {
 
@@ -115,7 +112,7 @@ write_user_data(void* contents, size_t size, size_t nmemb, void* userp) -> size_
     }
 
     mem->memory = ptr;
-    ::memcpy(&(mem->memory[mem->size]), contents, realsize);
+    std::memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
     mem->memory[mem->size] = 0;
 
@@ -134,7 +131,7 @@ header_callback(char* buffer, size_t size, size_t nitems, void*) -> size_t
     return size * nitems;
 }
 
-auto
+[[nodiscard]] auto
 encode_url(std::string_view url) -> std::string
 {
     std::string url_str{url};
@@ -160,44 +157,27 @@ set_url_options(std::string_view url)
 
     auto url_str{encode_url(url)};
     ::curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
-    ::curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+    ::curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
     ::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     ::curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 }
 
 }
 
-namespace url {
+namespace url::inline v1 {
 
-inline namespace v0 {
+using header_t = std::vector<std::string>;
 
-export using header_t = std::vector<std::string>;
+using form_t = std::vector<std::pair<std::string, std::string>>;
 
-export using form_t = std::vector<std::pair<std::string, std::string>>;
-
-export struct response_t
-{
-    uint32_t status_code{0};
-    header_t headers;
-    std::string body;
-    std::string encoding;
-    std::string url;
-
-    explicit constexpr
-    operator bool() const noexcept
-    {
-        return status_code >= 100 && status_code < 400;
-    }
-};
-
-export auto
+auto
 operator<<(std::ostream& os, response_t const& response) -> std::ostream&
 {
     os << response.body;
     return os;
 }
 
-static void
+void
 set_headers(header_t const& headers)
 {
     auto& curl = curl_thread_context.curl;
@@ -213,7 +193,7 @@ set_headers(header_t const& headers)
     }
 }
 
-static auto
+[[nodiscard]] auto
 request() -> response_t
 {
     auto& curl = curl_thread_context.curl;
@@ -235,8 +215,9 @@ request() -> response_t
 
         if (
             auto content_type{
-                std::ranges::find_if(
-                    response.headers,
+                std::find_if(
+                    response.headers.begin(),
+                    response.headers.end(),
                     [](std::string const& header) {
                         std::string lower{header};
                         std::ranges::transform(lower, lower.begin(), ::tolower);
@@ -265,7 +246,7 @@ request() -> response_t
     return response;
 }
 
-static auto
+auto
 update(std::string_view url, char const* method, std::string_view body, header_t const& headers) -> response_t
 {
     set_url_options(url);
@@ -283,22 +264,22 @@ update(std::string_view url, char const* method, std::string_view body, header_t
     return request();
 }
 
-export auto
-del(std::string_view url, std::string_view body = {}, header_t const& headers = {}) -> response_t
+auto
+del(std::string_view url, std::string_view body, header_t const& headers) -> response_t
 {
     return update(url, "DELETE", body, headers);
 }
 
-export auto
-get(std::string_view url, header_t const& headers = {}) -> response_t
+auto
+get(std::string_view url, header_t const& headers) -> response_t
 {
     set_url_options(url);
     set_headers(headers);
     return request();
 }
 
-export auto
-head(std::string_view url, header_t const& headers = {}) -> response_t
+auto
+head(std::string_view url, header_t const& headers) -> response_t
 {
     set_url_options(url);
 
@@ -309,14 +290,14 @@ head(std::string_view url, header_t const& headers = {}) -> response_t
     return request();
 }
 
-export auto
-patch(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+auto
+patch(std::string_view url, std::string_view body, header_t const& headers) -> response_t
 {
     return update(url, "PATCH", body, headers);
 }
 
-export auto
-post(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+auto
+post(std::string_view url, std::string_view body, header_t const& headers) -> response_t
 {
     set_url_options(url);
     set_headers(headers);
@@ -328,8 +309,8 @@ post(std::string_view url, std::string_view body, header_t const& headers = {}) 
     return request();
 }
 
-export auto
-post(std::string_view url, form_t form, header_t const& headers = {}) -> response_t
+auto
+post(std::string_view url, form_t form, header_t const& headers) -> response_t
 {
     set_url_options(url);
     set_headers(headers);
@@ -347,12 +328,10 @@ post(std::string_view url, form_t form, header_t const& headers = {}) -> respons
     return request();
 }
 
-export auto
-put(std::string_view url, std::string_view body, header_t const& headers = {}) -> response_t
+auto
+put(std::string_view url, std::string_view body, header_t const& headers) -> response_t
 {
     return update(url, "PUT", body, headers);
-}
-
 }
 
 }
